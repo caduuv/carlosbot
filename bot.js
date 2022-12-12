@@ -44,7 +44,7 @@ client.on("messageCreate", async (message) => {
     if (!message.content.startsWith(prefix)) return;
 
     const args = message.content.slice(prefix.length).trim().split(/ +/g);
-
+    
     let cmd = args.shift().toLowerCase()
     if (cmd.length === 0) return;
     let command = client.commands.get(cmd)
