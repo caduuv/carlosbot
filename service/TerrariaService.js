@@ -1,23 +1,158 @@
-module.exports = {
-    buscaPorNome: (item) => {
-        return new Promise((resolve, reject) => {
+const puppeteer = require('puppeteer');
+const { buscaItemPorNome, buscaRecipePorItem, buscaRecipesPossiveisPorItem } = require('../integration/TerrariaApiIntegration');
+const { capitalizeFirstLetter, prepareStringLike, translate, deleteAfterChar } = require("../utils/StringUtils");
+const WIKI_URL = "https://terraria.fandom.com/wiki/";
 
-            setTimeout(() => {
-                let url = `https://terraria.fandom.com/wiki/}`;
 
-                let result = {
-                    
-                    url: url,
-                    name: "Picareta de Cacto",
-                    imageURL: "https://static.wikia.nocookie.net/terraria_gamepedia/images/d/d4/Cactus_Pickaxe.png/revision/latest?cb=20200516203919&format=original",
-                    description: "The Cactus Pickaxe is an early-game pickaxe that has the same power (35%) as the Copper and Tin Pickaxes, which is the lowest in the game. However, it has +1 range advantage over the Copper Pickaxe (the Copper Pickaxe has a range deduction, while the Cactus Pickaxe does not). Like other low-tier pickaxes, it can mine blocks and ores weaker than Meteorite (which can be mined with a Tungsten Pickaxe or better), and seems to have an almost identical mining time to that of its copper counterpart. This pickaxe differs from all other early-game pickaxes, though, as it is made entirely from Cactus, and is crafted at a Work Bench rather than an Anvil, meaning the player can craft it before even venturing underground. It can also function as a decent weapon early in the game as it deals 5 damage, 1 higher than the Copper Pickaxe."
 
-                }
+async function buscaInformacoesAdicionaisItem(itemName) {
 
-                resolve(result);
-            }, 3000)
+    const browser = await puppeteer.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.goto(WIKI_URL + itemName.replace(/ /g, "_"), { waitUntil: 'networkidle2' });
+
+    let informacoes = await page.evaluate(() => {
+
+        let description;
+        let image;
+
+        try {
+            description = Array.from(document.querySelectorAll(".mw-parser-output > p")).map((e) => e.innerText).join(". ");
+        }
+        catch (err) {
+            description = undefined;
+        }
+
+        try {
+            image = document.querySelector(".section.images img").src;
+        }
+        catch (err) {
+            image = undefined;
+        }
+
+
+        return {
+            description,
+            image
+        };
+
+    });
+
+    await browser.close();
+
+    return informacoes;
+
+}
+
+async function prepareType(type) {
+
+    if (!type) {
+        return;
+    }
+
+    const res = [];
+
+
+    if (type.includes("^")) {
+
+        type.split("^").forEach(element => {
+            res.push(capitalizeFirstLetter(element));
+        });
+
+        return await translate(res.join("; "));
+
+    }
+
+    return await translate(capitalizeFirstLetter(type));
+}
+
+function prepareIngs(ings, focusIngrediente) {
+    return ings
+        .slice(1)
+        .split("¦")
+        .map((e, i, arr) => {
+
+            const specIng = focusIngrediente === e ? "***" : "";
+
+            if (i % 2 === 0) {
+                return `${specIng}${e} (*${arr[i + 1]}*)${specIng}`
+            }
+            return "\n";
 
         })
+        .join("");
+}
+
+const buscaItemPorNomeService = async (item, adicionais = true) => {
+
+    let itemBusca = await buscaItemPorNome(item.replace(/ /g, "%20"));
+
+    if (!itemBusca) {
+        itemBusca = await buscaItemPorNome(prepareStringLike(item, -3));
+    }
+
+    if (!itemBusca) {
+        return undefined;
+    } else if (!adicionais) {
+        return itemBusca;
+    }
+
+    if (adicionais) {
+        const informacoesAdiconais = itemBusca.name ? await buscaInformacoesAdicionaisItem(itemBusca.name) : undefined;
+
+        const recipe = await buscaRecipePorItem(itemBusca.itemid);
+
+        informacoesAdiconais.description = await translate(informacoesAdiconais.description);
+        itemBusca.type = await prepareType(itemBusca.type);
+        if (itemBusca.knockback) {
+            itemBusca.knockback = deleteAfterChar(itemBusca.knockback, "&lt");
+        }
+
+        if (recipe) {
+            recipe.ings = prepareIngs(recipe.ings);
+        }
+
+        return {
+            ...itemBusca,
+            recipe: recipe ? recipe : undefined,
+            ...informacoesAdiconais
+        }
+
+    }
+}
+
+module.exports = {
+    buscaItemPorNome: buscaItemPorNomeService,
+    buscaRecipesPorItem: async (item) => {
+
+        const itemBusca = await buscaItemPorNome(item, false);
+
+
+        if (!itemBusca) {
+            return undefined;
+        }
+
+        let recipes = await buscaRecipesPossiveisPorItem(itemBusca.name);
+
+        const originalLength = recipes.length;
+
+        recipes = recipes.map((e) => {
+
+            return {
+                ...e,
+                ings: prepareIngs(e.ings, itemBusca.name)
+
+            };
+        }).filter((e, i) => i < 9)
+        
+
+        return {
+            item: itemBusca.name,
+            recipes,
+            numberOfRecipes: originalLength
+        };
+
+
     }
 
 }
