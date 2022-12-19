@@ -7,7 +7,7 @@ const WIKI_URL = "https://terraria.fandom.com/wiki/";
 
 async function buscaInformacoesAdicionaisItem(itemName) {
 
-    const browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({args: ['--no-sandbox']});
     const page = await browser.newPage();
     await page.goto(WIKI_URL + itemName.replace(/ /g, "_"), { waitUntil: 'networkidle2' });
 
